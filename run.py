@@ -36,10 +36,22 @@ def plan_vacation():
     print("Let's plan your next vacation!\n")
 
     destination = input("Where would you like to travel to? ").strip()
+
     days = input("How many days is your trip? ").strip()
+
     travelers = input("How many people are traveling? ").strip()
+
     budget = input("What is your total budget? (e.g. $2,500) ").strip()
-    itinerary = input("What are your interested in doing? (food, adventures, sightseeing, etc.) ").strip()
+
+    itinerary = input("What are your interested in doing? (shopping, adventures, sightseeing, etc.) ").strip()
+
+    food = input(
+        "Any dietary restrictions or food preferences? "
+        "(e.g., halal meat only, vegetarian, vegan, allergies, or none): "
+    ).strip()
+    if not food:
+        food = "No specific dietary restrictions or food preferences provided."
+
     departure_city = input("What city are you departing from? ").strip()
 
     # Check that required details were provided
@@ -74,6 +86,7 @@ Trip duration: {days_number} days
 Number of travelers: {travelers_number} people
 Total budget: {budget}
 Itinerary: {itinerary}
+Dietary restrictions: {food}
 Departure city: {departure}
 
 Organize the response with these sections:
@@ -106,6 +119,15 @@ Important rules:
 - If the budget is unrealistic for the requested trip, say so honestly
   and suggest adjustments.
 - Never claim that reservations or purchases have been made.
+- Treat dietary restrictions as requirements, not optional preferences.
+- If the traveler requests halal meat only, recommend halal food options
+  and do not suggest non-halal meat dishes.
+- If the traveler is vegetarian, do not recommend meat or fish dishes.
+- Respect vegan, and other explicitly stated dietary restrictions.
+- Do not assume a restaurant is halal or meets another dietary standard
+  without reliable verification.
+- If dietary compliance cannot be verified, clearly tell the traveler
+  to confirm directly with the restaurant before visiting.
 """
 
     try:
