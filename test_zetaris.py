@@ -24,7 +24,9 @@ if not api_key or not org_id:
     raise SystemExit(1)
 
 # Run a harmless test query
-payload = {"sql": "SELECT * FROM NY_TAXI.taxi_zones LIMIT 5"}
+payload = {
+    "sql": "SELECT LocationID, borough, zone FROM NY_TAXI.taxi_zones LIMIT 5"
+}
 
 request = Request(
     f"{base_url}/sql-editor/sqls/run-query",
