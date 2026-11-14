@@ -2,6 +2,8 @@ import os
 import sys
 import re
 from pathlib import Path
+import requests
+from worldwide_places import get_destination_attractions
 
 from dotenv import load_dotenv
 from openai import OpenAI, AuthenticationError, APIConnectionError, APIStatusError
@@ -115,6 +117,48 @@ def plan_vacation():
     departure = departure_city \
         if departure_city else "not specified"
 
+
+    # Retrieve real worldwide destination information
+    print("\nTravelAgent is searching for attractions...")
+
+    destination_data = None
+    attractions_text = "No verified attraction data available."
+
+    try:
+        destination_data = get_destination_attractions(destination)
+
+        if destination_data is not None:
+            attractions = destination_data["attractions"]
+
+            if attractions:
+                attraction_lines = []
+
+                for attraction in attractions[:20]:
+                    attraction_lines.append(
+                        f"- {attraction['name']} "
+                        f"({attraction['category']})"
+                    )
+
+                attractions_text = "\n".join(attraction_lines)
+
+                print(
+                    f"Found {len(attractions)} attractions "
+                    f"near {destination}."
+                )
+            else:
+                print("No attractions found in the search area.")
+        else:
+            print("Destination could not be found.")
+
+    except requests.exceptions.RequestException as error:
+        print("Worldwide attraction lookup is unavailable.")
+        print(f"Reason: {error}")
+
+    except (ValueError, KeyError, TypeError) as error:
+        print("Could not process worldwide attraction data.")
+        print(f"Reason: {error}")
+
+
     prompt = f"""
 Create a practical vacation plan using these details:
 
@@ -125,6 +169,7 @@ Total budget: {budget}
 Itinerary: {itinerary}
 Dietary restrictions: {food}
 Departure city: {departure}
+Retrieved OpenStreetMap attractions near the destination: {attractions_text}
 
 Organize the response with these sections:
 
@@ -178,6 +223,14 @@ Important rules:
   without reliable verification.
 - If dietary compliance cannot be verified, clearly tell the traveler
   to confirm directly with the restaurant before visiting.
+- Use the retrieved OpenStreetMap attractions when they are relevant
+  to the traveler's interests.
+- The retrieved attractions are real map entries, but their current
+  opening hours, availability, and suitability are not verified.
+- Do not assume the retrieved list covers the entire destination.
+- Do not invent verification of attractions that were not retrieved.
+- If attraction data is unavailable, explain that recommendations
+  are based on general knowledge rather than a live lookup.
 """
 
     try:
