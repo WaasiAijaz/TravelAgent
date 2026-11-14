@@ -1,6 +1,6 @@
-
 import os
 import sys
+import re
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -31,44 +31,81 @@ client = OpenAI(
 )
 
 
+# Convert trip durations into days
+def parse_trip_duration(user_input):
+    user_input = user_input.lower().strip()
+
+    if user_input.isdigit():
+        days = int(user_input)
+        return days if days > 0 else None
+
+    # Accept days, weeks, or both
+    pattern = (
+        r"(?:(\d+)\s*(?:weeks?|wks?))?"
+        r"(?:\s*(?:and\s+)?(\d+)\s*(?:days?|d))?"
+    )
+
+    match = re.fullmatch(pattern, user_input)
+
+    if not match or not any(match.groups()):
+        return None
+
+    weeks = int(match.group(1) or 0)
+    days = int(match.group(2) or 0)
+
+    total_days = weeks * 7 + days
+
+    return total_days if total_days > 0 else None
+
+
 def plan_vacation():
     print("\n=== Welcome to TravelAgent ===")
     print("Let's plan your next vacation!\n")
 
     destination = input("Where would you like to travel to? ").strip()
 
-    days = input("How many days is your trip? ").strip()
+    # Accept flexible trip durations
+    while True:
+        duration_input = input(
+            "How long is your trip? (e.g., 5 days, 2 weeks): "
+        ).strip()
+
+        days_number = parse_trip_duration(duration_input)
+
+        if days_number is not None:
+            break
+
+        print("Please enter a valid duration, such as 5 days or 2 weeks.")
 
     travelers = input("How many people are traveling? ").strip()
 
     budget = input("What is your total budget? (e.g. $2,500) ").strip()
 
-    itinerary = input("What are your interested in doing? (shopping, adventures, sightseeing, etc.) ").strip()
+    itinerary = input(
+        "What are you interested in doing? "
+        "(shopping, adventures, sightseeing, etc.) "
+    ).strip()
 
     food = input(
         "Any dietary restrictions or food preferences? "
         "(e.g., halal meat only, vegetarian, vegan, allergies, or none): "
     ).strip()
+
     if not food:
         food = "No specific dietary restrictions or food preferences provided."
 
     departure_city = input("What city are you departing from? ").strip()
 
     # Check that required details were provided
-    if not all([destination, days, travelers, budget, itinerary]):
+    if not all([destination, travelers, budget, itinerary]):
         print("Please fill in all required trip details.")
         return
 
     try:
-        days_number = int(days)
         travelers_number = int(travelers)
 
     except ValueError:
-        print("Please enter a whole number for days and travelers.")
-        return
-
-    if days_number < 1:
-        print("Must be at least one day.")
+        print("Please enter a whole number for travelers.")
         return
 
     if travelers_number < 1:
@@ -95,15 +132,28 @@ Organize the response with these sections:
 Summarize the recommended trip and explain your main assumptions.
 
 2. DAY-BY-DAY ITINERARY
-Create a plan for each day. Suggest activities, sights, and food
-experiences relevant to the traveler's interests. Group activities
-geographically when practical.
+Create a plan for EVERY day of the trip, from Day 1 through
+Day {days_number}.
+
+Do not skip any days.
+
+Suggest activities, sights, and food experiences relevant to
+the traveler's interests.
+
+Group activities geographically when practical.
+
+For longer trips, keep each day's description concise enough
+to include all requested days.
 
 3. ESTIMATED BUDGET
 Give a breakdown for transportation, lodging, food, activities,
-and a contingency buffer. State the currency and whether costs are
-for all travelers combined or per person. Make the totals consistent
-with the traveler's stated budget as closely as possible.
+and a contingency buffer.
+
+State the currency and whether costs are for all travelers
+combined or per person.
+
+Make the totals consistent with the traveler's stated budget
+as closely as possible.
 
 4. MONEY-SAVING TIPS
 Give practical ways to stay within budget.
@@ -123,7 +173,7 @@ Important rules:
 - If the traveler requests halal meat only, recommend halal food options
   and do not suggest non-halal meat dishes.
 - If the traveler is vegetarian, do not recommend meat or fish dishes.
-- Respect vegan, and other explicitly stated dietary restrictions.
+- Respect vegan and other explicitly stated dietary restrictions.
 - Do not assume a restaurant is halal or meets another dietary standard
   without reliable verification.
 - If dietary compliance cannot be verified, clearly tell the traveler
@@ -132,6 +182,12 @@ Important rules:
 
     try:
         print("\nTravelAgent is planning your vacation. Please wait...\n")
+
+        # Allow longer responses for longer trips
+        max_output_tokens = min(
+            8000,
+            max(2000, days_number * 350)
+        )
 
         response = client.chat.completions.create(
             model=model,
@@ -142,12 +198,13 @@ Important rules:
                         "You are TravelAgent, a helpful vacation-planning "
                         "assistant. Follow the traveler's requirements, "
                         "organize your answer clearly, and be honest about "
-                        "uncertain prices and information."
+                        "uncertain prices and information. "
+                        "Provide a separate itinerary for every requested day."
                     ),
                 },
                 {"role": "user", "content": prompt},
             ],
-            max_tokens=2000,
+            max_tokens=max_output_tokens,
         )
 
         answer = response.choices[0].message.content
@@ -156,6 +213,12 @@ Important rules:
         print("YOUR TRAVELAGENT VACATION PLAN")
         print("=" * 60)
         print(answer or "The AI returned an empty response.")
+
+        if response.choices[0].finish_reason == "length":
+            print(
+                "\nNote: The response reached the output limit. "
+                "Some itinerary details may be missing."
+            )
 
     except AuthenticationError:
         print("Authentication failed. Check your Meterless runtime token.")
