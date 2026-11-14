@@ -238,8 +238,8 @@ Important rules:
 
         # Allow longer responses for longer trips
         max_output_tokens = min(
-            8000,
-            max(2000, days_number * 350)
+            12000,
+            max(4000, days_number * 600)
         )
 
         response = client.chat.completions.create(
@@ -261,6 +261,8 @@ Important rules:
         )
 
         answer = response.choices[0].message.content
+        finish_reason = response.choices[0].finish_reason
+        print("AI finish reason:", finish_reason)
 
         print("=" * 60)
         print("YOUR TRAVELAGENT VACATION PLAN")

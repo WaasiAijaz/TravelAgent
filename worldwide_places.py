@@ -1,4 +1,31 @@
+
+import os
+import json
+import time
+from pathlib import Path
+
 import requests
+from dotenv import load_dotenv
+
+
+# Load environment variables
+env_file = Path(__file__).resolve().parent / ".env"
+load_dotenv(env_file)
+
+GEOAPIFY_API_KEY = os.getenv("GEOAPIFY_API_KEY", "").strip()
+
+# Cache settings
+CACHE_DIR = Path(__file__).resolve().parent / "cache"
+CACHE_DIR.mkdir(exist_ok=True)
+
+CACHE_FILE = CACHE_DIR / "worldwide_attractions.json"
+CACHE_DURATION = 7 * 24 * 60 * 60
+
+HEADERS = {
+    "User-Agent": "TravelAgent/1.0 (personal travel planning project)",
+    "Accept-Language": "en"
+}
+
 
 # Find a destination anywhere in the world
 def find_destination(destination):
@@ -10,16 +37,11 @@ def find_destination(destination):
         "limit": 1
     }
 
-    headers = {
-        "User-Agent": "TravelAgent/1.0 (personal travel planning project)",
-        "Accept-Language": "en"
-    }
-
     response = requests.get(
         url,
         params=params,
-        headers=headers,
-        timeout=20
+        headers=HEADERS,
+        timeout=15
     )
 
     response.raise_for_status()
@@ -32,49 +54,130 @@ def find_destination(destination):
     return results[0]
 
 
-# Find attractions near the destination
+# Find attractions using Geoapify
 def find_attractions(latitude, longitude):
-    url = "https://overpass-api.de/api/interpreter"
+    if not GEOAPIFY_API_KEY or GEOAPIFY_API_KEY == "YOUR_ACTUAL_API_KEY":
+        raise ValueError(
+            "GEOAPIFY_API_KEY is missing or invalid in your .env file."
+        )
 
-    query = f"""
-    [out:json][timeout:25];
-    node(around:1000,{latitude},{longitude})
-      ["tourism"~"^(attraction|museum)$"];
-    out tags;
-    """
+    url = "https://api.geoapify.com/v2/places"
 
-    response = requests.post(
+    params = {
+        "categories": (
+            "tourism.attraction,"
+            "tourism.sights,"
+            "entertainment.museum"
+        ),
+        "filter": f"circle:{longitude},{latitude},5000",
+        "bias": f"proximity:{longitude},{latitude}",
+        "limit": 100,
+        "lang": "en",
+        "apiKey": GEOAPIFY_API_KEY
+    }
+
+    print("Searching Geoapify for attractions...")
+
+    response = requests.get(
         url,
-        data={"data": query},
-        headers={
-            "User-Agent": "TravelAgent/1.0 (personal travel planning project)"
-        },
-        timeout=60
+        params=params,
+        timeout=(5, 20)
     )
 
     response.raise_for_status()
 
-    attractions = response.json().get("elements", [])
+    features = response.json().get("features", [])
 
-    # Keep only places that have a name
     named_attractions = []
+    seen = set()
 
-    for place in attractions:
-        tags = place.get("tags", {})
+    for feature in features:
+        properties = feature.get("properties", {})
 
-        name = tags.get("name:en") or tags.get("name")
+        name = properties.get("name")
 
-        if name:
-            named_attractions.append({
-                "name": name,
-                "category": tags.get("tourism", "unknown")
-            })
+        if not name:
+            continue
+
+        name_key = name.strip().lower()
+
+        if name_key in seen:
+            continue
+
+        seen.add(name_key)
+
+        categories = properties.get("categories", [])
+
+        if categories:
+            category = categories[0]
+        else:
+            category = "unknown"
+
+        named_attractions.append({
+            "name": name,
+            "category": category
+        })
 
     return named_attractions
 
 
+# Load cached destination information
+def load_cache(destination):
+    if not CACHE_FILE.exists():
+        return None
+
+    try:
+        with open(CACHE_FILE, "r", encoding="utf-8") as file:
+            cache_data = json.load(file)
+
+        key = destination.strip().lower()
+        entry = cache_data.get(key)
+
+        if entry is None:
+            return None
+
+        if time.time() - entry["timestamp"] > CACHE_DURATION:
+            return None
+
+        print("Using cached destination information.")
+
+        return entry["result"]
+
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+# Save destination information to cache
+def save_cache(destination, result):
+    cache_data = {}
+
+    if CACHE_FILE.exists():
+        try:
+            with open(CACHE_FILE, "r", encoding="utf-8") as file:
+                cache_data = json.load(file)
+        except (OSError, ValueError):
+            cache_data = {}
+
+    key = destination.strip().lower()
+
+    cache_data[key] = {
+        "timestamp": time.time(),
+        "result": result
+    }
+
+    with open(CACHE_FILE, "w", encoding="utf-8") as file:
+        json.dump(cache_data, file, indent=4, ensure_ascii=False)
+
+
 # Combine destination lookup and attraction search
 def get_destination_attractions(destination):
+    # Check cache first
+    cached_result = load_cache(destination)
+
+    if cached_result is not None:
+        return cached_result
+
+    # Find destination coordinates
     location = find_destination(destination)
 
     if location is None:
@@ -83,11 +186,17 @@ def get_destination_attractions(destination):
     latitude = float(location["lat"])
     longitude = float(location["lon"])
 
+    # Retrieve real attractions
     attractions = find_attractions(latitude, longitude)
 
-    return {
+    result = {
         "destination": location.get("display_name", destination),
         "latitude": latitude,
         "longitude": longitude,
         "attractions": attractions
     }
+
+    # Save successful results
+    save_cache(destination, result)
+
+    return result
